@@ -24,9 +24,9 @@ void user_tool_change(uint32_t new_tool) {
     // if (current_tool != 0) {
     //     execute_linef(true, "G53 G0 G90 X%5.3f Y%5.3f", origin_mpos[0], origin_mpos[1]);
     // }
-    
+
     restore_program_state();
-        
+
     rapid_change = nullptr;
 }
 
@@ -35,16 +35,16 @@ void execute_linef(bool sync_after, const char* format, ...) {
     va_list args;
     va_start(args, format);
     int length = vsprintf(gc_line, format, args); 
-    
+
     // remove
     log_info(gc_line);   
 
     gc_line[length] = '\n';
     gc_line[length + 1] = '\0';
     va_end(args);
-    
+
     gc_execute_line(gc_line);
-    
+
     if (sync_after) {
         protocol_buffer_synchronize();
     }
@@ -157,7 +157,7 @@ void set_tlo() {
     execute_linef(true, "G38.2 G91 F%d Z%5.3f", rapid_change->_seek_feed_rate, -1 * rapid_change->_set_tool_max_travel);
     execute_linef(true, "G91 G0 Z%d", rapid_change->_seek_retreat);
     execute_linef(true, "G38.2 G91 F%d Z%5.3f", rapid_change->_set_feed_rate, -1 * (rapid_change->_seek_retreat + 2));
-    
+
     float* m_pos = get_mpos();
     float m_pos_z = m_pos[Z_AXIS];
     float tlo = m_pos_z;
@@ -166,9 +166,9 @@ void set_tlo() {
     char message[40];
     sprintf(message, "Saved/Fetched TLO: %s", current_tlo->get());
     log_info(message);
-    
+
     execute_linef(false, "G43.1 Z%5.3f", tlo);
-    
+
     //execute_linef(true, "G10 L20 P0 Z%5.3f", rapid_change->_set_tool_offset);
     execute_linef(true, "G90 G0");
 
@@ -223,7 +223,7 @@ void unload_tool() {
         // If we're using tool recognition, handle it
         if (rapid_change->_tool_recognition_enabled) {
             rapid_to_z(rapid_change->_z_tool_recognition_zone_1);
-            
+
             // If we have a tool, try unloading one more time
             if (spindle_has_tool()) {
                 rapid_to_z(rapid_change->_z_engage + 23);
@@ -252,7 +252,7 @@ void unload_tool() {
             rapid_to_z(rapid_change->_z_traverse);
             spin_stop();
         }
-    
+
     // If the tool doesn't have a pocket, let's pause for manual removal
     } else {  
         open_dust_cover(true);

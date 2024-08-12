@@ -3,9 +3,10 @@
 // Copyright (c) 2018 -	Bart Dring
 // Use of this source code is governed by a GPLv3 license that can be found in the LICENSE file.
 
+// RS274/NGC parser.
+
 // This file has been modified to allow for RapidChange ATC to support M61 for setting the current tool.
 
-// RS274/NGC parser.
 
 #include "GCode.h"
 #include "Settings.h"
@@ -16,8 +17,10 @@
 #include "MotionControl.h"        // mc_override_ctrl_update
 #include "Machine/UserOutputs.h"  // setAnalogPercent
 #include "Platform.h"             // WEAK_LINK
+#include "Job.h"                  // Job::active() and Job::channel()
 
 #include "Machine/MachineConfig.h"
+#include "Parameters.h"
 
 #include <string.h>  // memset
 #include <math.h>    // sqrt etc.
@@ -37,6 +40,26 @@ static const int32_t MaxLineNumber = 10000000;
 parser_state_t gc_state;
 parser_block_t gc_block;
 
+// clang-format off
+gc_modal_t modal_defaults = {
+    Motion::Seek,
+    FeedRate::UnitsPerMin,
+    Units::Mm,
+    Distance::Absolute,  // G90
+    // ArcDistance::Incremental
+    Plane::XY,
+    // CutterCompensation::Disable,
+    ToolLengthOffset::Cancel,
+    CoordIndex::G54,
+    ProgramFlow::Running,
+    {}, // 0, // CoolantState::M7,
+    SpindleState::Disable,
+    ToolChange::Disable,
+    IoControl::None,
+    Override::ParkingMotion
+};
+// clang-format on
+
 #define FAIL(status) return (status);
 
 void gc_init() {
@@ -44,8 +67,8 @@ void gc_init() {
     memset(&gc_state, 0, sizeof(parser_state_t));
 
     // Load default G54 coordinate system.
-    gc_state.modal.coord_select = CoordIndex::G54;
-    gc_state.modal.override     = config->_start->_deactivateParking ? Override::Disabled : Override::ParkingMotion;
+    gc_state.modal          = modal_defaults;
+    gc_state.modal.override = config->_start->_deactivateParking ? Override::Disabled : Override::ParkingMotion;
     coords[gc_state.modal.coord_select]->get(gc_state.coord_system);
 }
 
@@ -126,11 +149,15 @@ void collapseGCode(char* line) {
     *outPtr = '\0';
 }
 
-static void gc_ngc_changed(CoordIndex coord) {
+void gc_ngc_changed(CoordIndex coord) {
     allChannels.notifyNgc(coord);
 }
 
-static void gc_wco_changed() {
+void gc_ovr_changed() {
+    allChannels.notifyOvr();
+}
+
+void gc_wco_changed() {
     if (FORCE_BUFFER_SYNC_DURING_WCO_CHANGE) {
         protocol_buffer_synchronize();
     }
@@ -198,20 +225,26 @@ Error gc_execute_line(char* line) {
        words, and for negative values set for the value words F, N, P, T, and S. */
     ModalGroup mg_word_bit;  // Bit-value for assigning tracking variables
     uint32_t   bitmask = 0;
-    size_t     char_counter;
+    size_t     pos;
     char       letter;
     float      value;
     uint8_t    int_value = 0;
     uint16_t   mantissa  = 0;
-    char_counter         = jogMotion ? 3 : 0;  // Start parsing after `$J=` if jogging
-    while (line[char_counter] != 0) {          // Loop until no more g-code words in line.
+    pos                  = jogMotion ? 3 : 0;  // Start parsing after `$J=` if jogging
+    while ((letter = line[pos]) != '\0') {     // Loop until no more g-code words in line.
+        if (letter == '#') {
+            pos++;
+            if (!assign_param(line, &pos)) {
+                FAIL(Error::BadNumberFormat);
+            }
+            continue;
+        }
         // Import the next g-code word, expecting a letter followed by a value. Otherwise, error out.
-        letter = line[char_counter];
         if ((letter < 'A') || (letter > 'Z')) {
             FAIL(Error::ExpectedCommandLetter);  // [Expected word letter]
         }
-        char_counter++;
-        if (!read_float(line, &char_counter, &value)) {
+        pos++;
+        if (!read_number(line, &pos, value)) {
             FAIL(Error::BadNumberFormat);  // [Expected word value]
         }
         // Convert values to smaller uint8 significand and mantissa values for parsing this word.
@@ -645,7 +678,11 @@ Error gc_execute_line(char* line) {
                             FAIL(Error::GcodeUnsupportedCommand);
                         }
                         break;
-                    // case 'D': // Not supported
+
+                    case 'D':  // Unsupported word used for parameter debugging
+                        axis_word_bit = GCodeWord::D;
+                        log_info("Value is " << value);
+                        break;
                     case 'E':
                         axis_word_bit     = GCodeWord::E;
                         gc_block.values.e = int_value;
@@ -1331,6 +1368,7 @@ Error gc_execute_line(char* line) {
                    (bitnum_to_mask(GCodeWord::X) | bitnum_to_mask(GCodeWord::Y) | bitnum_to_mask(GCodeWord::Z) |
                     bitnum_to_mask(GCodeWord::A) | bitnum_to_mask(GCodeWord::B) | bitnum_to_mask(GCodeWord::C)));  // Remove axis words.
     }
+    clear_bits(value_words, bitnum_to_mask(GCodeWord::D));
     if (value_words) {
         FAIL(Error::GcodeUnusedWords);  // [Unused words]
     }
@@ -1420,7 +1458,7 @@ Error gc_execute_line(char* line) {
         if (gc_state.modal.spindle != SpindleState::Disable && !laserIsMotion && !state_is(State::CheckMode)) {
             protocol_buffer_synchronize();
             spindle->setState(gc_state.modal.spindle, disableLaser ? 0 : (uint32_t)gc_block.values.s);
-            report_ovr_counter = 0;  // Set to report change immediately
+            gc_ovr_changed();
         }
         gc_state.spindle_speed = gc_block.values.s;  // Update spindle speed state.
     }
@@ -1431,8 +1469,6 @@ Error gc_execute_line(char* line) {
     // [5. Select tool ]: NOT SUPPORTED. Only tracks tool value.
     //	gc_state.tool = gc_block.values.t;
     // [6. Change tool ]: NOT SUPPORTED
-
-    // RapidChange ATC added support for M61
     if (gc_block.modal.tool_change == ToolChange::Enable) {
         user_tool_change(gc_state.tool);
     } else if (gc_block.modal.tool_change == ToolChange::Select) {
@@ -1447,7 +1483,7 @@ Error gc_execute_line(char* line) {
             protocol_buffer_synchronize();
             spindle->setState(gc_block.modal.spindle, (uint32_t)pl_data->spindle_speed);
         }
-        report_ovr_counter     = 0;  // Set to report change immediately
+        gc_ovr_changed();
         gc_state.modal.spindle = gc_block.modal.spindle;
     }
     pl_data->spindle = gc_state.modal.spindle;
@@ -1474,7 +1510,7 @@ Error gc_execute_line(char* line) {
         if (!state_is(State::CheckMode)) {
             protocol_buffer_synchronize();
             config->_coolant->set_state(gc_state.modal.coolant);
-            report_ovr_counter = 0;  // Set to report change immediately
+            gc_ovr_changed();
         }
     }
 
@@ -1663,6 +1699,10 @@ Error gc_execute_line(char* line) {
         case ProgramFlow::CompletedM30:
             protocol_buffer_synchronize();  // Sync and finish all remaining buffered motions before moving on.
 
+            if (Job::active()) {
+                Job::channel()->end();
+                break;
+            }
             // Upon program complete, only a subset of g-codes reset to certain defaults, according to
             // LinuxCNC's program end descriptions and testing. Only modal groups [G-code 1,2,3,5,7,12]
             // and [M-code 7,8,9] reset to [G1,G17,G90,G94,G40,G54,M5,M9,M48]. The remaining modal groups
@@ -1696,13 +1736,15 @@ Error gc_execute_line(char* line) {
                 gc_wco_changed();  // Set to refresh immediately just in case something altered.
                 spindle->spinDown();
                 config->_coolant->off();
-                report_ovr_counter = 0;  // Set to report changes immediately
+                gc_ovr_changed();
             }
             report_feedback_message(Message::ProgramEnd);
             user_m30();
             break;
     }
     gc_state.modal.program_flow = ProgramFlow::Running;  // Reset program flow.
+
+    perform_assignments();
 
     // TODO: % to denote start of program.
     return Error::Ok;
@@ -1735,9 +1777,9 @@ Error gc_execute_line(char* line) {
 
 void WEAK_LINK user_m30() {}
 
+void WEAK_LINK user_select_tool(uint32_t new_tool) {}
+
 void WEAK_LINK user_tool_change(uint32_t new_tool) {
     Spindles::Spindle::switchSpindle(new_tool, config->_spindles, spindle);
-    report_ovr_counter = 0;  // Set to report change immediately
+    gc_ovr_changed();
 }
-
-void WEAK_LINK user_select_tool(uint32_t new_tool) {}

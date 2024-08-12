@@ -14,6 +14,8 @@ extern IntSetting* sd_fallback_cs;
 
 extern EnumSetting* message_level;
 
+extern EnumSetting* gcode_echo;
+
 // Current tool persistance modification
 extern IntSetting* current_tool;
 

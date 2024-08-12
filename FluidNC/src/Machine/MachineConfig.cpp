@@ -4,6 +4,7 @@
 
 // This file has been modified to allow for configuration of RapidChange ATC
 
+
 #include "MachineConfig.h"
 
 #include "../Kinematics/Kinematics.h"
@@ -157,6 +158,8 @@ namespace Machine {
         if (_rapidChange == nullptr) {
             _rapidChange = new RapidChange::RapidChange();
         }
+
+
     }
 
     const char defaultConfig[] = "name: Default (Test Drive)\nboard: None\n";
@@ -264,8 +267,7 @@ namespace Machine {
         delete _spi;
         delete _control;
         delete _macros;
-
-        // RapidChange ATC cleanup
+                // RapidChange ATC cleanup
         delete _rapidChange;
     }
 }

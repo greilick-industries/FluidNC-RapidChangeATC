@@ -9,7 +9,7 @@ namespace RapidChange {
         private:           
             float calculate_tool_pos(uint8_t axis, uint8_t tool_num, float ref_value);
             float get_manual_pos(uint8_t axis);
-            
+
         public:
             RapidChange() = default;
 
@@ -55,12 +55,12 @@ namespace RapidChange {
             float _dust_cover_closed_position;
             bool _dust_cover_use_output;
             Pin _dust_cover_pin;
-            
+
             // tool recognition
             float _z_tool_recognition_zone_1;
             float _z_tool_recognition_zone_2;
             Pin _tool_recognition_pin;
-            
+
             enum dustCoverAxis {
                 A_AXIS = 3,
                 B_AXIS = 4,
@@ -75,7 +75,7 @@ namespace RapidChange {
                 X_AXIS = 0,
                 Y_AXIS = 1
             };
-            
+
             float get_touch_probe_pos(uint8_t axis);
             float get_tool_pos(uint8_t axis, uint8_t tool_num);
             bool tool_has_pocket(uint8_t tool_num);
@@ -85,7 +85,3 @@ namespace RapidChange {
             ~RapidChange() = default;
     };
 }
-
-
-
-

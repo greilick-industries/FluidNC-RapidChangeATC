@@ -28,6 +28,7 @@ namespace Spindles {
 
         // Name of the configurable. Must match the name registered in the cpp file.
         const char* name() const override { return "Huanyang"; }
+        bool use_delay_settings() const override { return false; }
 
     public:
         Huanyang();

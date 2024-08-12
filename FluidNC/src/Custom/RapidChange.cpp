@@ -115,5 +115,3 @@ namespace RapidChange {
         this->_tool_recognition_pin.setAttr(Pin::Attr::Input);
     }
 }
-
-

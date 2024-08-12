@@ -20,7 +20,6 @@ EnumSetting* message_level;
 
 // Begin RapidChange modification
 IntSetting* current_tool;
-
 StringSetting* current_tlo;
 // End RapidChange modification
 
@@ -39,6 +38,8 @@ const enum_opt_t messageLevels = {
 };
 
 const enum_opt_t onoffOptions = { { "OFF", 0 }, { "ON", 1 } };
+
+EnumSetting* gcode_echo;
 
 void make_coordinate(CoordIndex index, const char* name) {
     float coord_data[MAX_N_AXIS] = { 0.0 };
@@ -84,12 +85,15 @@ void make_settings() {
 
     build_info = new StringSetting("OEM build info for $I command", EXTENDED, WG, NULL, "Firmware/Build", "", 0, 20);
 
-    start_message = new StringSetting("Message issued at startup", EXTENDED, WG, NULL, "Start/Message", "Grbl \\V [FluidNC \\B (\\R) \\H]", 0, 40);
+    start_message =
+        new StringSetting("Message issued at startup", EXTENDED, WG, NULL, "Start/Message", "Grbl \\V [FluidNC \\B (\\R) \\H]", 0, 40);
+
+    gcode_echo = new EnumSetting("GCode Echo Enable", WEBSET, WG, NULL, "GCode/Echo", 0, &onoffOptions);
 
     // Begin RapidChange modification
     current_tool = new IntSetting("Current tool in spindle", EXTENDED, WG, NULL, "Current/Tool", 0, 0, 255);
 
-    current_tlo = new StringSetting("Current tool in spindle", EXTENDED, WG, NULL, "Current/TLO", "0", 1, 10);
+    current_tlo = new StringSetting("TLO of Current tool in spindle", EXTENDED, WG, NULL, "Current/TLO", "0", 1, 10);
     // End RapidChange modification
 
     // Some gcode senders expect Grbl to report certain numbered settings to improve
